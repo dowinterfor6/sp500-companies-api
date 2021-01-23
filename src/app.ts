@@ -115,7 +115,7 @@ setInterval(() => {
   }
 }, DAY_IN_MS);
 
-app.get("/", async (req: Request, res: Response) => {
+app.get("/sp500-companies", async (req: Request, res: Response) => {
   try {
     const cachedData: string[] = await hmgetAsync(
       SP_500_REDIS_KEY,
