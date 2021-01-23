@@ -13,9 +13,9 @@ const hmgetAsync = promisify(redisClient.hmget).bind(redisClient);
 const flushDbAsync = promisify(redisClient.flushdb).bind(redisClient);
 
 const SP_500_REDIS_KEY: string = "sp500";
-const SP_500_OLD_REDIS_KEY: string = "sp500Old";
 const DATE_ADDED: string = "dateAdded";
 const TICKER_SYMBOLS: string = "tickerSymbols";
+const DAY_IN_MS: number = 1000 * 60 * 60 * 24;
 
 const wikiPageTitle: string = "List_of_S&P_500_companies";
 const url: string = "https://en.wikipedia.org/w/api.php";
@@ -52,7 +52,7 @@ const fetchFromWiki = async (): Promise<string[]> => {
       }
     });
 
-    return sp500TickerSymbols;
+    return getUniqueTickerSymbols(sp500TickerSymbols);
   } catch (error) {
     console.log(`Error fetching from wiki page: ${error}`);
     return [];
@@ -62,30 +62,50 @@ const fetchFromWiki = async (): Promise<string[]> => {
 const setupRedisCache = async () => {
   try {
     await flushDbAsync();
-
-    const wikiData = await fetchFromWiki();
-    if (wikiData.length === 0) return;
-
-    await hmsetAsync(
-      SP_500_REDIS_KEY,
-      DATE_ADDED,
-      Date.now(),
-      TICKER_SYMBOLS,
-      wikiData.toString()
-    );
-    await hmsetAsync(
-      SP_500_OLD_REDIS_KEY,
-      DATE_ADDED,
-      Date.now(),
-      TICKER_SYMBOLS,
-      wikiData.toString()
-    );
+    await updateRedisCache();
   } catch (error) {
     console.log(`Error setting up redis cache: ${error}`);
   }
 };
 
+const getUniqueTickerSymbols = (tickerSymbols: string[]): string[] => {
+  const tickerSet = new Set<string>(tickerSymbols);
+  return [...tickerSet];
+};
+
+const updateRedisCache = async () => {
+  try {
+    const wikiData = await fetchFromWiki();
+    if (wikiData.length === 0) {
+      console.log("Fetched empty data from wiki page");
+      throw new Error("Wiki fetch returned no results");
+    }
+
+    const currDate = new Date();
+
+    await hmsetAsync(
+      SP_500_REDIS_KEY,
+      DATE_ADDED,
+      currDate,
+      TICKER_SYMBOLS,
+      wikiData.toString()
+    );
+    console.log(
+      `Successfully updated redis cache on ${currDate.toDateString()}`
+    );
+  } catch (error) {
+    console.log(`Error updating redis cache: ${error}`);
+  }
+};
+
 setupRedisCache();
+
+setInterval(() => {
+  const currDate = new Date();
+  if (currDate.getDay() === 0) {
+    updateRedisCache();
+  }
+}, DAY_IN_MS);
 
 app.get("/", async (req: Request, res: Response) => {
   try {
@@ -107,7 +127,7 @@ app.get("/", async (req: Request, res: Response) => {
   } catch (error) {
     console.log(`Error in getting cached data: ${error}`);
     const errorData = {
-      error,
+      error: error.message,
     };
     res.status(500).json(errorData);
   }
