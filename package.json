@@ -15,6 +15,7 @@
   "license": "ISC",
   "devDependencies": {
     "@types/express": "^4.17.11",
+    "@types/redis": "^2.8.28",
     "@typescript-eslint/eslint-plugin": "^4.14.0",
     "@typescript-eslint/parser": "^4.14.0",
     "eslint-config-airbnb-base": "^14.2.1",
@@ -27,6 +28,7 @@
   "dependencies": {
     "axios": "^0.21.1",
     "express": "^4.17.1",
-    "node-html-parser": "^2.0.2"
+    "node-html-parser": "^2.0.2",
+    "redis": "^3.0.2"
   }
 }
