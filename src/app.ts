@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import axios from "axios";
 import redis from "redis";
 import { promisify } from "util";
@@ -26,6 +27,13 @@ const params: WikiApiParams = {
   prop: "text",
   formatversion: 2,
 };
+
+const limiter = rateLimit({
+  windowMs: 1000,
+  max: 1,
+});
+
+app.use(limiter);
 
 const fetchFromWiki = async (): Promise<string[]> => {
   try {
