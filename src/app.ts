@@ -17,7 +17,7 @@ const params: WikiApiParams = {
 
 const app = express();
 
-app.get("/test", async (req: Request, res: Response) => {
+app.get("/", async (req: Request, res: Response) => {
   try {
     const response = await axios.get<WikiParseResponse>(url, {
       params,
@@ -29,28 +29,28 @@ app.get("/test", async (req: Request, res: Response) => {
 
     const root = parse(rawHtml);
 
-    const sp500Table: HTMLElement | null =
+    const sp500Table: HTMLElement =
       root.querySelector("#constituents") || root.querySelector("table");
 
+    // TODO: More robust error handling
     if (!sp500Table) {
       throw new Error("Error in retrieving table from parsed wiki html");
     }
 
     const sp500Root = parse(sp500Table.toString());
 
-    const sp500TableBody: HTMLElement | null = sp500Root.querySelector("tbody");
+    const sp500TableRows: Array<HTMLElement> = sp500Root.querySelectorAll("tr");
 
-    const sp500BodyRoot = parse(sp500TableBody.toString());
+    const sp500TickerSymbols: Array<string> = [];
 
-    const sp500DataRows: HTMLElement[] | [] = sp500BodyRoot.querySelectorAll(
-      "td"
-    );
-
-    sp500DataRows.forEach((dataRow) => {
-      console.log(dataRow.firstChild);
+    sp500TableRows.forEach((row: HTMLElement, index: number) => {
+      if (index > 0) {
+        // TODO: More elegant solution? row.firstChild gives empty
+        sp500TickerSymbols.push(row.childNodes[1].innerText);
+      }
     });
 
-    res.status(200).send(sp500TableBody.toString());
+    res.status(200).send(sp500TickerSymbols);
   } catch (error) {
     console.log("Error: ", error);
     res.status(500);
