@@ -23,7 +23,7 @@ const DAY_IN_MS: number = 1000 * 60 * 60 * 24;
 
 const wikiPageTitle: string = "List_of_S&P_500_companies";
 const wikiApiUrl: string = "https://en.wikipedia.org/w/api.php";
-const params: WikiApiParams = {
+const wikiParams: WikiApiParams = {
   action: "parse",
   format: "json",
   page: wikiPageTitle,
@@ -41,7 +41,7 @@ app.use(limiter);
 const fetchFromWiki = async (): Promise<string[]> => {
   try {
     const { data } = await axios.get<WikiParseResponse>(wikiApiUrl, {
-      params,
+      params: wikiParams,
     });
 
     const rawHtml = data.parse.text;
@@ -174,9 +174,10 @@ const updateCompanyInfo = async () => {
     }
 
     const tickerSymbols = cachedData[1].split(",");
-    const intervalDelay =
-      (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
-      10;
+    // const intervalDelay =
+    //   (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
+    //   10;
+    const intervalDelay = 0;
 
     const companyInfoUpdateInterval = setInterval(async () => {
       try {
@@ -185,23 +186,31 @@ const updateCompanyInfo = async () => {
           return;
         }
         const currSymbol = tickerSymbols.shift();
+        const companyData: any = {};
         alphaVantageFunctions.forEach(async (aVFunction) => {
-          // await get for each AV function (3 overall)
-          // put into redis cache
           const params = {
             function: aVFunction,
             symbol: currSymbol,
-            apikey: alphaVantageKey
-          }
-
-          // TODO: how to efficiently store json in redis
-          // construct a new one for all 3 combined? 
+            apikey: alphaVantageKey,
+          };
 
           // TODO: Is this worth typing...
           // const { data } = await axios.get(alphaVantageApiUrl, {
-          //   params
-          // })
+          //   params,
+          // });
+          const data = `${aVFunction} | ${currSymbol}`;
+          companyData[aVFunction] = data;
         });
+
+        if (Object.keys(companyData).length !== 3) {
+          throw new Error("Alpha Vantage API function data error");
+        }
+
+        await hmsetAsync(
+          COMPANY_INFO_SUFFIX,
+          currSymbol,
+          JSON.stringify(companyData)
+        );
       } catch (error) {
         console.log(`Error in updating company info interval: ${error}`);
       }
@@ -230,7 +239,8 @@ const updateCompanyTimeSeries = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    const intervalDelay = Math.ceil((60000 + 1000) / 12);
+    // const intervalDelay = Math.ceil((60000 + 1000) / 12);
+    const intervalDelay = 0;
 
     const companyTimeSeriesUpdateInterval = setInterval(async () => {
       try {
@@ -239,8 +249,29 @@ const updateCompanyTimeSeries = async () => {
           return;
         }
         const currSymbol = tickerSymbols.shift();
-        // await get for company time series
-        // put into redis cache
+
+        const params = {
+          symbol: currSymbol,
+        };
+
+        // const { data } = await axios.get(twelveDataApiUrl, {
+        //   params,
+        // });
+        const data = {
+          [currSymbol]: {
+            [currSymbol]: `${currSymbol} | MOCK`,
+          },
+        };
+
+        if (!data[currSymbol]) {
+          throw new Error("Twelve Data API returned no/invalid result");
+        }
+
+        await hmsetAsync(
+          COMPANY_TIME_SERIES_SUFFIX,
+          currSymbol,
+          JSON.stringify(data[currSymbol])
+        );
       } catch (error) {
         console.log(`Error in updating company time series interval: ${error}`);
       }
@@ -250,6 +281,80 @@ const updateCompanyTimeSeries = async () => {
   }
 };
 
-// TODO: Make the actual endpoints lmao
+app.get("/sp500-info", async (req: Request, res: Response) => {
+  try {
+    const cachedData: string[] = await hmgetAsync(
+      SP_500_REDIS_KEY,
+      DATE_ADDED,
+      TICKER_SYMBOLS
+    );
+
+    if (cachedData.some((el) => !el)) {
+      throw new Error("Redis cache was set up incorrectly");
+    }
+
+    const tickerSymbols = cachedData[1].split(",");
+    const sp500CompanyInfo: any = {};
+
+    // Can't use forEach because Babel/TS transform to generator function
+    // https://stackoverflow.com/questions/37576685/using-async-await-with-a-foreach-loop
+
+    for (const tickerSymbol of tickerSymbols) {
+      const companyInfo = await hmgetAsync(COMPANY_INFO_SUFFIX, tickerSymbol);
+
+      if (companyInfo.length !== 1) {
+        throw new Error("Company info redis cache set up incorrectly");
+      }
+
+      sp500CompanyInfo[tickerSymbol] = JSON.parse(companyInfo[0]);
+    }
+
+    res.status(200).json(sp500CompanyInfo);
+  } catch (error) {
+    console.log(`Error in getting cached data: ${error}`);
+    const errorData = {
+      error: error.message,
+    };
+    res.status(500).json(errorData);
+  }
+});
+
+app.get("/sp500-time-series", async (req: Request, res: Response) => {
+  try {
+    const cachedData: string[] = await hmgetAsync(
+      SP_500_REDIS_KEY,
+      DATE_ADDED,
+      TICKER_SYMBOLS
+    );
+
+    if (cachedData.some((el) => !el)) {
+      throw new Error("Redis cache was set up incorrectly");
+    }
+
+    const tickerSymbols = cachedData[1].split(",");
+    const sp500CompanyTimeSeries: any = {};
+
+    for (const tickerSymbol of tickerSymbols) {
+      const companyInfo = await hmgetAsync(
+        COMPANY_TIME_SERIES_SUFFIX,
+        tickerSymbol
+      );
+
+      if (companyInfo.length !== 1) {
+        throw new Error("Company info redis cache set up incorrectly");
+      }
+
+      sp500CompanyTimeSeries[tickerSymbol] = JSON.parse(companyInfo[0]);
+    }
+
+    res.status(200).json(sp500CompanyTimeSeries);
+  } catch (error) {
+    console.log(`Error in getting cached data: ${error}`);
+    const errorData = {
+      error: error.message,
+    };
+    res.status(500).json(errorData);
+  }
+});
 
 export default app;
