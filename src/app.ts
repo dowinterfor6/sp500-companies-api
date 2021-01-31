@@ -150,10 +150,7 @@ const updateCompanyInfo = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    const intervalDelay =
-      (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
-        10 +
-      1000;
+    const intervalDelay = ((24 * 60 * 60 * 1000) / 500) * 3 + 1000;
 
     const companyInfoUpdateInterval = setInterval(async () => {
       try {
