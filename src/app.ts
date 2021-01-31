@@ -125,7 +125,7 @@ setInterval(() => {
   const currMonth = currDate.getMonth();
   if (currMonth !== prevMonth) {
     prevMonth = currMonth;
-    updateCompanyInfo;
+    updateCompanyInfo();
   }
 }, DAY_IN_MS);
 
@@ -340,7 +340,7 @@ app.get("/sp500-time-series", async (req: Request, res: Response) => {
         COMPANY_TIME_SERIES_SUFFIX,
         tickerSymbol
       );
-      
+
       // Allow failing silently for now
       if (companyInfo.length > 0) {
         sp500CompanyTimeSeries[tickerSymbol] = JSON.parse(companyInfo[0]);
