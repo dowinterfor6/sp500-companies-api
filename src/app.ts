@@ -17,7 +17,7 @@ const flushDbAsync = promisify(redisClient.flushdb).bind(redisClient);
 const SP_500_REDIS_KEY: string = "sp500";
 const COMPANY_INFO_SUFFIX: string = "info";
 const COMPANY_TIME_SERIES_SUFFIX: string = "timeSeries";
-const DATE_ADDED: string = "dateAdded";
+const LAST_UPDATED: string = "lastUpdated";
 const TICKER_SYMBOLS: string = "tickerSymbols";
 const DAY_IN_MS: number = 1000 * 60 * 60 * 24;
 
@@ -58,15 +58,13 @@ const fetchFromWiki = async (): Promise<string[]> => {
 
     sp500TableRows.forEach((row: HTMLElement, index: number) => {
       if (index > 0) {
-        // TODO: More elegant solution? row.firstChild gives empty
         sp500TickerSymbols.push(row.childNodes[1].innerText.replace("\n", ""));
       }
     });
 
-    // TODO: Could validate against exchanges call from twelve data?
     return getUniqueTickerSymbols(sp500TickerSymbols);
   } catch (error) {
-    console.log(`Error fetching from wiki page: ${error}`);
+    console.log(`| API ERROR | Wiki API | ${error}`);
     return [];
   }
 };
@@ -76,7 +74,7 @@ const setupRedisCache = async () => {
     await flushDbAsync();
     await updateRedisCache();
   } catch (error) {
-    console.log(`Error setting up redis cache: ${error}`);
+    console.log(`| Redis ERROR | Redis initial setup | ${error}`);
   }
 };
 
@@ -89,7 +87,6 @@ const updateRedisCache = async () => {
   try {
     const wikiData = await fetchFromWiki();
     if (wikiData.length === 0) {
-      console.log("Fetched empty data from wiki page");
       throw new Error("Wiki fetch returned no results");
     }
 
@@ -97,14 +94,16 @@ const updateRedisCache = async () => {
 
     await hmsetAsync(
       SP_500_REDIS_KEY,
-      DATE_ADDED,
+      LAST_UPDATED,
       currDate,
       TICKER_SYMBOLS,
       wikiData.toString()
     );
-    console.log(`Successful redis cache update on ${currDate.toDateString()}`);
+    console.log(
+      `| Redis LOG | SP500 symbols update on ${currDate.toDateString()}`
+    );
   } catch (error) {
-    console.log(`Error updating redis cache: ${error}`);
+    console.log(`| Redis ERROR | Updating Redis cache | ${error}`);
   }
 };
 
@@ -113,46 +112,23 @@ setupRedisCache().then(() => {
   updateCompanyInfo();
 });
 
-// TODO: Make a set interval to call update time series and info
-// Info is updated quarterly, time series updated nightly
+let prevMonth: number = new Date().getMonth();
 
 setInterval(() => {
   const currDate = new Date();
   if (currDate.getDay() === 0) {
     updateRedisCache();
   }
+
+  updateCompanyTimeSeries();
+
+  const currMonth = currDate.getMonth();
+  if (currMonth !== prevMonth) {
+    prevMonth = currMonth;
+    updateCompanyInfo;
+  }
 }, DAY_IN_MS);
 
-// Wiki api
-app.get("/sp500-companies", async (req: Request, res: Response) => {
-  try {
-    const cachedData: string[] = await hmgetAsync(
-      SP_500_REDIS_KEY,
-      DATE_ADDED,
-      TICKER_SYMBOLS
-    );
-
-    if (cachedData.some((el) => !el)) {
-      throw new Error("Redis cache was set up incorrectly");
-    }
-
-    const formattedData = {
-      dateAdded: cachedData[0],
-      tickerSymbols: cachedData[1].split(","),
-    };
-    res.status(200).json(formattedData);
-  } catch (error) {
-    console.log(`Error in getting cached data: ${error}`);
-    const errorData = {
-      error: error.message,
-    };
-    res.status(500).json(errorData);
-  }
-});
-
-// Alpha Vantage api
-// 500/day, 5/min
-// OVERVIEW, INCOME_STATEMENT, BALANCE_SHEET
 const alphaVantageApiUrl: string = "https://www.alphavantage.co/query";
 const alphaVantageFunctions: string[] = [
   "OVERVIEW",
@@ -161,11 +137,10 @@ const alphaVantageFunctions: string[] = [
 ];
 
 const updateCompanyInfo = async () => {
-  console.log("Attempt company info update");
   try {
     const cachedData: string[] = await hmgetAsync(
       SP_500_REDIS_KEY,
-      DATE_ADDED,
+      LAST_UPDATED,
       TICKER_SYMBOLS
     );
 
@@ -174,10 +149,9 @@ const updateCompanyInfo = async () => {
     }
 
     const tickerSymbols = cachedData[1].split(",");
-    // const intervalDelay =
-    //   (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
-    //   10;
-    const intervalDelay = 0;
+    const intervalDelay =
+      (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
+      10;
 
     const companyInfoUpdateInterval = setInterval(async () => {
       try {
@@ -194,42 +168,44 @@ const updateCompanyInfo = async () => {
             apikey: alphaVantageKey,
           };
 
-          // TODO: Is this worth typing...
-          // const { data } = await axios.get(alphaVantageApiUrl, {
-          //   params,
-          // });
-          const data = `${aVFunction} | ${currSymbol}`;
+          const { data } = await axios.get(alphaVantageApiUrl, {
+            params,
+          });
+
           companyData[aVFunction] = data;
         });
 
         if (Object.keys(companyData).length !== 3) {
-          throw new Error("Alpha Vantage API function data error");
+          throw new Error("Function data error");
         }
+
+        companyData[LAST_UPDATED] = new Date();
 
         await hmsetAsync(
           COMPANY_INFO_SUFFIX,
           currSymbol,
           JSON.stringify(companyData)
         );
+
+        console.log(
+          `| Redis LOG | SP500 Company info update on ${new Date().toDateString()}`
+        );
       } catch (error) {
-        console.log(`Error in updating company info interval: ${error}`);
+        console.log(`| API ERROR | Alpha Vantage API | ${error}`);
       }
     }, intervalDelay);
   } catch (error) {
-    console.log(`Error in getting cached data: ${error}`);
+    console.log(`| Redis ERROR | ${error}`);
   }
 };
 
-// Twelve Data api
-// 800/day, 12/min
 const twelveDataApiUrl = "https://api.twelvedata.com/time_series";
 
 const updateCompanyTimeSeries = async () => {
-  console.log("Attempt company time series update");
   try {
     const cachedData: string[] = await hmgetAsync(
       SP_500_REDIS_KEY,
-      DATE_ADDED,
+      LAST_UPDATED,
       TICKER_SYMBOLS
     );
 
@@ -239,8 +215,7 @@ const updateCompanyTimeSeries = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    // const intervalDelay = Math.ceil((60000 + 1000) / 12);
-    const intervalDelay = 0;
+    const intervalDelay = Math.ceil((60000 + 1000) / 12);
 
     const companyTimeSeriesUpdateInterval = setInterval(async () => {
       try {
@@ -252,40 +227,67 @@ const updateCompanyTimeSeries = async () => {
 
         const params = {
           symbol: currSymbol,
+          apikey: twelveDataKey,
         };
 
-        // const { data } = await axios.get(twelveDataApiUrl, {
-        //   params,
-        // });
-        const data = {
-          [currSymbol]: {
-            [currSymbol]: `${currSymbol} | MOCK`,
-          },
-        };
+        const { data } = await axios.get(twelveDataApiUrl, {
+          params,
+        });
 
         if (!data[currSymbol]) {
-          throw new Error("Twelve Data API returned no/invalid result");
+          throw new Error("No/invalid result");
         }
+
+        data[currSymbol][LAST_UPDATED] = new Date();
 
         await hmsetAsync(
           COMPANY_TIME_SERIES_SUFFIX,
           currSymbol,
           JSON.stringify(data[currSymbol])
         );
+        console.log(
+          `| Redis LOG | SP500 Company time series update on ${new Date().toDateString()}`
+        );
       } catch (error) {
-        console.log(`Error in updating company time series interval: ${error}`);
+        console.log(`| API Error | Twelve Data | ${error}`);
       }
     }, intervalDelay);
   } catch (error) {
-    console.log(`Error in getting cached data: ${error}`);
+    console.log(`| Redis Error | ${error}`);
   }
 };
+
+app.get("/sp500-companies", async (req: Request, res: Response) => {
+  try {
+    const cachedData: string[] = await hmgetAsync(
+      SP_500_REDIS_KEY,
+      LAST_UPDATED,
+      TICKER_SYMBOLS
+    );
+
+    if (cachedData.some((el) => !el)) {
+      throw new Error("Redis cache was set up incorrectly");
+    }
+
+    const formattedData = {
+      dateAdded: cachedData[0],
+      tickerSymbols: cachedData[1].split(","),
+    };
+    res.status(200).json(formattedData);
+  } catch (error) {
+    console.log(`| Endpoint ERROR | ${error}`);
+    const errorData = {
+      error: error.message,
+    };
+    res.status(500).json(errorData);
+  }
+});
 
 app.get("/sp500-info", async (req: Request, res: Response) => {
   try {
     const cachedData: string[] = await hmgetAsync(
       SP_500_REDIS_KEY,
-      DATE_ADDED,
+      LAST_UPDATED,
       TICKER_SYMBOLS
     );
 
@@ -302,16 +304,15 @@ app.get("/sp500-info", async (req: Request, res: Response) => {
     for (const tickerSymbol of tickerSymbols) {
       const companyInfo = await hmgetAsync(COMPANY_INFO_SUFFIX, tickerSymbol);
 
-      if (companyInfo.length !== 1) {
-        throw new Error("Company info redis cache set up incorrectly");
+      // Allow failing silently for now
+      if (companyInfo.length > 0) {
+        sp500CompanyInfo[tickerSymbol] = JSON.parse(companyInfo[0]);
       }
-
-      sp500CompanyInfo[tickerSymbol] = JSON.parse(companyInfo[0]);
     }
 
     res.status(200).json(sp500CompanyInfo);
   } catch (error) {
-    console.log(`Error in getting cached data: ${error}`);
+    console.log(`| Endpoint ERROR | ${error}`);
     const errorData = {
       error: error.message,
     };
@@ -323,7 +324,7 @@ app.get("/sp500-time-series", async (req: Request, res: Response) => {
   try {
     const cachedData: string[] = await hmgetAsync(
       SP_500_REDIS_KEY,
-      DATE_ADDED,
+      LAST_UPDATED,
       TICKER_SYMBOLS
     );
 
@@ -339,17 +340,16 @@ app.get("/sp500-time-series", async (req: Request, res: Response) => {
         COMPANY_TIME_SERIES_SUFFIX,
         tickerSymbol
       );
-
-      if (companyInfo.length !== 1) {
-        throw new Error("Company info redis cache set up incorrectly");
+      
+      // Allow failing silently for now
+      if (companyInfo.length > 0) {
+        sp500CompanyTimeSeries[tickerSymbol] = JSON.parse(companyInfo[0]);
       }
-
-      sp500CompanyTimeSeries[tickerSymbol] = JSON.parse(companyInfo[0]);
     }
 
     res.status(200).json(sp500CompanyTimeSeries);
   } catch (error) {
-    console.log(`Error in getting cached data: ${error}`);
+    console.log(`| Endpoint ERROR | ${error}`);
     const errorData = {
       error: error.message,
     };

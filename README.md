@@ -6,3 +6,6 @@ S&P 500 Companies API is an endpoint for ticker symbols for the S&P 500 companie
 - Rate limited to 1 request per second
 - Endpoint is hosted at TBA
 - License TBD
+
+## Issues
+- Wiki Api call to get ticker symbols needs more robust validation
