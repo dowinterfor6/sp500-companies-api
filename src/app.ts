@@ -150,10 +150,11 @@ const updateCompanyInfo = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    const intervalDelay =
-      (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
-        10 +
-      1000;
+    // const intervalDelay =
+    //   (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
+    //     10 +
+    //   1000;
+    const intervalDelay = 1000;
 
     const companyInfoUpdateInterval = setInterval(async () => {
       try {
@@ -161,9 +162,11 @@ const updateCompanyInfo = async () => {
           clearInterval(companyInfoUpdateInterval);
           return;
         }
+
         const currSymbol = tickerSymbols.shift();
         const companyData: any = {};
-        alphaVantageFunctions.forEach(async (aVFunction) => {
+
+        for (const aVFunction of alphaVantageFunctions) {
           const params = {
             function: aVFunction,
             symbol: currSymbol,
@@ -175,7 +178,7 @@ const updateCompanyInfo = async () => {
           });
 
           companyData[aVFunction] = data;
-        });
+        }
 
         if (Object.keys(companyData).length !== 3) {
           throw new Error("Function data error");
@@ -217,7 +220,7 @@ const updateCompanyTimeSeries = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    const intervalDelay = Math.ceil((60000) / 8) + 1000;
+    const intervalDelay = Math.ceil(60000 / 8) + 1000;
 
     const companyTimeSeriesUpdateInterval = setInterval(async () => {
       try {
