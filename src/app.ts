@@ -16,9 +16,9 @@ const flushDbAsync = promisify(redisClient.flushdb).bind(redisClient);
 
 const SP_500_REDIS_KEY: string = "sp500";
 const COMPANY_INFO_SUFFIX: string = "info";
-const COMPANY_TIME_SERIES_SUFFIX: string = "timeSeries";
-const LAST_UPDATED: string = "lastUpdated";
-const TICKER_SYMBOLS: string = "tickerSymbols";
+const COMPANY_TIME_SERIES_SUFFIX: string = "time_series";
+const LAST_UPDATED: string = "last_updated";
+const TICKER_SYMBOLS: string = "ticker_symbols";
 const DAY_IN_MS: number = 1000 * 60 * 60 * 24;
 
 const wikiPageTitle: string = "List_of_S&P_500_companies";
@@ -149,9 +149,11 @@ const updateCompanyInfo = async () => {
     }
 
     const tickerSymbols = cachedData[1].split(",");
+    // Add extra buffer
     const intervalDelay =
       (Math.ceil(((24 * 60) / (tickerSymbols.length / 3)) * 10) * 60 * 1000) /
-      10;
+        10 +
+      1000;
 
     const companyInfoUpdateInterval = setInterval(async () => {
       try {
@@ -215,7 +217,7 @@ const updateCompanyTimeSeries = async () => {
 
     const tickerSymbols = cachedData[1].split(",");
     // Add extra buffer
-    const intervalDelay = Math.ceil((60000 + 1000) / 12);
+    const intervalDelay = Math.ceil((60000) / 8) + 1000;
 
     const companyTimeSeriesUpdateInterval = setInterval(async () => {
       try {
@@ -235,7 +237,7 @@ const updateCompanyTimeSeries = async () => {
           params,
         });
 
-        if (Object.keys(data).length === 0) {
+        if (!data.meta) {
           throw new Error("No/invalid result");
         }
 
