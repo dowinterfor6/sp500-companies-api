@@ -228,22 +228,23 @@ const updateCompanyTimeSeries = async () => {
         const params = {
           symbol: currSymbol,
           apikey: twelveDataKey,
+          interval: "1day",
         };
 
         const { data } = await axios.get(twelveDataApiUrl, {
           params,
         });
 
-        if (!data[currSymbol]) {
+        if (Object.keys(data).length === 0) {
           throw new Error("No/invalid result");
         }
 
-        data[currSymbol][LAST_UPDATED] = new Date();
+        data.meta[LAST_UPDATED] = new Date();
 
         await hmsetAsync(
           COMPANY_TIME_SERIES_SUFFIX,
           currSymbol,
-          JSON.stringify(data[currSymbol])
+          JSON.stringify(data)
         );
         console.log(
           `| Redis LOG | SP500 Company time series update on ${new Date().toDateString()}`
