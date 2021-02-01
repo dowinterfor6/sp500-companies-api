@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import rateLimit from "express-rate-limit";
-import axios, { AxiosResponse } from "axios";
+import axios from "axios";
+import cors from "cors";
 import redis from "redis";
 import { promisify } from "util";
 import { HTMLElement, parse } from "node-html-parser";
@@ -37,6 +38,7 @@ const limiter = rateLimit({
 });
 
 app.use(limiter);
+app.use(cors());
 
 const fetchFromWiki = async (): Promise<string[]> => {
   try {
