@@ -34,13 +34,13 @@ const wikiParams: WikiApiParams = {
 
 const limiter = rateLimit({
   windowMs: 1000,
-  max: 1,
+  max: 4,
 });
 
 app.use(limiter);
 app.use(cors());
 // Pre-Flight
-app.options('*', cors());
+app.options("*", cors());
 
 const fetchFromWiki = async (): Promise<string[]> => {
   try {
