@@ -39,6 +39,8 @@ const limiter = rateLimit({
 
 app.use(limiter);
 app.use(cors());
+// Pre-Flight
+app.options('*', cors());
 
 const fetchFromWiki = async (): Promise<string[]> => {
   try {
